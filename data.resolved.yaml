@@ -1,0 +1,13 @@
+train: C:\Coding Archives\smart-flame-detector\train\images
+val: C:\Coding Archives\smart-flame-detector\valid\images
+test: C:\Coding Archives\smart-flame-detector\test\images
+nc: 2
+names:
+- Fire
+- Smoke
+roboflow:
+  workspace: firesensor-zwryw
+  project: fire-h2gkf-6mcdq
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/firesensor-zwryw/fire-h2gkf-6mcdq/dataset/1
