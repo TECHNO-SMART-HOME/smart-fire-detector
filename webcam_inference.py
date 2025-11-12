@@ -251,32 +251,21 @@ def run_inference_loop(
                             )
                             fire_alert = True
             annotated = result.plot(labels=not hide_labels, conf=not hide_conf)
-            overlay_y = 36
+            blink_on = ((frame_index // 10) % 2) == 0
             if fire_alert:
-                cv2.putText(
-                    annotated,
-                    "ALERT: Strong FIRE detected",
-                    (12, overlay_y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9,
-                    (0, 0, 255),
-                    2,
-                    cv2.LINE_AA,
-                )
-                overlay_y += 30
-            if fire_alert:
-                cv2.putText(
-                    annotated,
-                    "Check console logs for details",
-                    (12, overlay_y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 0, 255),
-                    2,
-                    cv2.LINE_AA,
-                )
                 if alarm_player is not None:
                     alarm_player.trigger()
+                if blink_on:
+                    cv2.putText(
+                        annotated,
+                        "ALERT: Strong FIRE detected",
+                        (12, 36),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.9,
+                        (0, 0, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
 
             cv2.imshow(WINDOW_NAME, annotated)
             frame_index += 1
