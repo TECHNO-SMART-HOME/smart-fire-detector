@@ -91,6 +91,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Hide confidence values in the rendered preview.",
     )
+    parser.add_argument(
+        "--fire-alert-threshold",
+        type=float,
+        default=0.85,
+        help="Confidence threshold that triggers alert logging/overlay for Fire detections.",
+    )
     return parser.parse_args()
 
 
@@ -131,6 +137,7 @@ def run_inference_loop(
     mirror: bool,
     hide_labels: bool,
     hide_conf: bool,
+    fire_alert_threshold: float,
     logger: logging.Logger,
 ) -> None:
     capture = cv2.VideoCapture(source)
@@ -138,6 +145,7 @@ def run_inference_loop(
         raise RuntimeError(f"Could not open video source '{source}'.")
 
     logger.info("Press 'q' or ESC to exit the preview window.")
+    frame_index = 0
 
     try:
         while True:
@@ -156,8 +164,60 @@ def run_inference_loop(
                 conf=conf,
                 verbose=False,
             )
-            annotated = results[0].plot(labels=not hide_labels, conf=not hide_conf)
+            result = results[0]
+            fire_alert = False
+            boxes = result.boxes
+            if boxes is not None and boxes.cls is not None:
+                names = result.names or {}
+                classes = boxes.cls.detach().cpu().tolist()
+                confidences = (
+                    boxes.conf.detach().cpu().tolist()
+                    if boxes.conf is not None
+                    else [None] * len(classes)
+                )
+                for cls_id, score in zip(classes, confidences):
+                    label = names.get(int(cls_id), str(int(cls_id))).lower()
+                    if label == "fire":
+                        logger.info(
+                            "Frame %d: Fire detected%s",
+                            frame_index,
+                            f" (confidence {score:.2f})" if score is not None else "",
+                        )
+                        if score is not None and score >= fire_alert_threshold:
+                            logger.warning(
+                                "Frame %d: ALERT strong fire signal detected (confidence %.2f)",
+                                frame_index,
+                                score,
+                            )
+                            fire_alert = True
+            annotated = result.plot(labels=not hide_labels, conf=not hide_conf)
+            overlay_y = 36
+            if fire_alert:
+                cv2.putText(
+                    annotated,
+                    "ALERT: Strong FIRE detected",
+                    (12, overlay_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+                overlay_y += 30
+            if fire_alert:
+                cv2.putText(
+                    annotated,
+                    "Check console logs for details",
+                    (12, overlay_y),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+
             cv2.imshow(WINDOW_NAME, annotated)
+            frame_index += 1
 
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord("q")):
@@ -187,6 +247,7 @@ def main() -> None:
         mirror=args.mirror,
         hide_labels=args.hide_labels,
         hide_conf=args.hide_conf,
+        fire_alert_threshold=args.fire_alert_threshold,
         logger=logger,
     )
 
