@@ -1,0 +1,10 @@
+{
+    "code-runner.executorMap": {
+        "python": "python -u",
+        "py": "python -u"
+    },
+    "code-runner.executorMapByFileExtension": {
+        ".py": "python -u"
+    },
+    "code-runner.runInTerminal": true
+}
