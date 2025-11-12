@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import multiprocessing
+import threading
 from pathlib import Path
 from typing import Iterable
 
@@ -18,9 +19,15 @@ except ImportError as exc:  # pragma: no cover - import guard
         "OpenCV is required for webcam streaming. Install it with 'pip install opencv-python'."
     ) from exc
 
+try:
+    from playsound import playsound
+except ImportError:  # pragma: no cover - optional dependency
+    playsound = None
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 RUNS_DIR = PROJECT_ROOT / "runs"
 WINDOW_NAME = "Smart Flame Detector"
+DEFAULT_ALARM_SOUND = PROJECT_ROOT / "firealarm.mp3"
 
 
 def discover_default_weights() -> Path:
@@ -94,10 +101,62 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fire-alert-threshold",
         type=float,
-        default=0.85,
+        default=0.80,
         help="Confidence threshold that triggers alert logging/overlay for Fire detections.",
     )
+    parser.add_argument(
+        "--alarm-sound",
+        type=Path,
+        default=DEFAULT_ALARM_SOUND,
+        help=(
+            "Path to an audio file to play when a strong fire signal is detected. "
+            "Defaults to firealarm.mp3 beside this script."
+        ),
+    )
     return parser.parse_args()
+
+
+class AlarmPlayer:
+    """Best-effort asynchronous audio alert player."""
+
+    def __init__(self, sound_path: Path | None, logger: logging.Logger) -> None:
+        self.sound_path = sound_path
+        self.logger = logger
+        self._lock = threading.Lock()
+        self._is_playing = False
+        self._missing_backend_warned = False
+
+        if self.sound_path is not None and not self.sound_path.exists():
+            self.logger.warning("Alarm sound '%s' was not found; alerts will be silent.", self.sound_path)
+            self.sound_path = None
+
+    def trigger(self) -> None:
+        if self.sound_path is None:
+            return
+
+        if playsound is None:
+            if not self._missing_backend_warned:
+                self.logger.warning(
+                    "Install the 'playsound' package to enable audio alerts (pip install playsound)."
+                )
+                self._missing_backend_warned = True
+            return
+
+        with self._lock:
+            if self._is_playing:
+                return
+            self._is_playing = True
+
+        threading.Thread(target=self._play_sound, daemon=True).start()
+
+    def _play_sound(self) -> None:
+        try:
+            playsound(str(self.sound_path))
+        except Exception as exc:  # pragma: no cover - device/hardware specific
+            self.logger.error("Fire alarm playback failed: %s", exc)
+        finally:
+            with self._lock:
+                self._is_playing = False
 
 
 def coerce_source(source: str) -> int | str:
@@ -139,6 +198,7 @@ def run_inference_loop(
     hide_conf: bool,
     fire_alert_threshold: float,
     logger: logging.Logger,
+    alarm_player: AlarmPlayer | None,
 ) -> None:
     capture = cv2.VideoCapture(source)
     if not capture.isOpened():
@@ -215,6 +275,8 @@ def run_inference_loop(
                     2,
                     cv2.LINE_AA,
                 )
+                if alarm_player is not None:
+                    alarm_player.trigger()
 
             cv2.imshow(WINDOW_NAME, annotated)
             frame_index += 1
@@ -238,6 +300,10 @@ def main() -> None:
     logger.info("Loading model weights from %s", args.weights)
     model = YOLO(str(args.weights))
 
+    alarm_player = AlarmPlayer(
+        sound_path=args.alarm_sound.resolve() if args.alarm_sound is not None else None,
+        logger=logger,
+    )
     run_inference_loop(
         model=model,
         source=coerce_source(args.source),
@@ -249,6 +315,7 @@ def main() -> None:
         hide_conf=args.hide_conf,
         fire_alert_threshold=args.fire_alert_threshold,
         logger=logger,
+        alarm_player=alarm_player,
     )
 
 
