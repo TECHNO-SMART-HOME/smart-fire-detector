@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
+import multiprocessing
+import os
 from pathlib import Path
 from typing import Any
 
@@ -62,19 +63,12 @@ def parse_args() -> argparse.Namespace:
         help="Optimizer to use (Ultralytics accepts auto, SGD, Adam, AdamW, etc.).",
     )
     parser.add_argument(
-        "--allow-cpu-fallback",
-        action="store_true",
-        help="Only set if you are okay running on CPU when CUDA is unavailable.",
-    )
-    parser.add_argument(
         "--cache",
         action="store_true",
         help="Cache images for faster training (requires enough CPU RAM).",
     )
     parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Resume the most recent run for the selected project/name pair.",
+        "--resume", action="store_true", help="Resume the most recent run for the selected project/name pair."
     )
     parser.add_argument(
         "--exist-ok",
@@ -134,29 +128,64 @@ def materialize_data_config(data_cfg: Path, logger: logging.Logger) -> Path:
     return resolved_path
 
 
-def choose_device(preferred: str | None, allow_cpu: bool) -> str:
-    """Ensure training runs on the GPU unless CPU fallback is explicitly allowed."""
-    if torch.cuda.is_available():
-        return preferred if preferred is not None else "0"
+def choose_device(preferred: str | None) -> str:
+    """Require CUDA-backed execution and provide actionable diagnostics when unavailable."""
 
-    if allow_cpu:
-        print(
-            "[WARN] CUDA is not available; falling back to CPU because --allow-cpu-fallback was set.",
-            file=sys.stderr,
+    def cuda_ready() -> bool:
+        if not torch.cuda.is_available():
+            return False
+        return torch.cuda.device_count() > 0
+
+    def cuda_diagnostic() -> str:
+        build = torch.version.cuda
+        if build is None:
+            return (
+                "PyTorch was installed without CUDA support (torch.version.cuda is None). "
+                "Install a CUDA-enabled build from https://pytorch.org/get-started/locally/ to use the GPU."
+            )
+        if not torch.cuda.is_available():
+            return (
+                f"PyTorch reports CUDA build {build}, but torch.cuda.is_available() returned False. "
+                "Verify that NVIDIA drivers and the matching CUDA runtime are installed."
+            )
+        if torch.cuda.device_count() == 0:
+            return (
+                f"PyTorch reports CUDA build {build}, but torch.cuda.device_count() returned 0 GPUs. "
+                "Ensure at least one CUDA-capable GPU is accessible to the OS."
+            )
+        return (
+            f"PyTorch reports CUDA build {build}, but the requested CUDA device could not be initialized. "
+            "Verify that the GPU identifier exists and is not in exclusive use."
         )
-        return "cpu"
 
-    raise RuntimeError(
-        "CUDA device not detected. Install GPU drivers or rerun with --allow-cpu-fallback if CPU training is acceptable."
-    )
+    if preferred:
+        normalized = preferred.strip().lower()
+        if normalized in {"cpu", "cpu:0"}:
+            raise RuntimeError("CPU execution is disabled. Select a CUDA device such as --device 0.")
+        if not cuda_ready():
+            diagnostic = cuda_diagnostic()
+            raise RuntimeError(f"{diagnostic} Requested device '{preferred}' but CUDA is unavailable.")
+        return preferred
+
+    if cuda_ready():
+        return "0"
+
+    diagnostic = cuda_diagnostic()
+    raise RuntimeError(f"{diagnostic} GPU execution is mandatory for this trainer.")
 
 
 def main() -> None:
+    """Entrypoint for training. freeze_support guard avoids Windows spawn issues."""
     logger = configure_logging()
     args = parse_args()
     logger.info("Starting training run with args: %s", args)
+    data_yaml = Path(args.data)
+    if not os.path.exists(os.fspath(data_yaml)):
+        logger.error("Dataset config not found at '%s'. Ensure the YAML file exists.", data_yaml)
+        raise SystemExit(1)
+    logger.info("Validated dataset config at %s", data_yaml)
     data_cfg = materialize_data_config(args.data, logger)
-    device = choose_device(args.device, args.allow_cpu_fallback)
+    device = choose_device(args.device)
     logger.info("Using device: %s", device)
 
     model = YOLO(args.weights)
@@ -187,4 +216,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()
