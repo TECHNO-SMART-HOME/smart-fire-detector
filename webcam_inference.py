@@ -105,7 +105,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fire-alert-threshold",
         type=float,
-        default=0.80,
+        default=0.85,
         help="Confidence threshold that triggers alert logging/overlay for Fire detections.",
     )
     parser.add_argument(
