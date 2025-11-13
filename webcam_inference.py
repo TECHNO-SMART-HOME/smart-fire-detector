@@ -1,4 +1,4 @@
-"""Live webcam inference utility for the smart flame detector YOLO model."""
+"""Live webcam inference utility for the smart fire detector YOLO model."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 RUNS_DIR = PROJECT_ROOT / "runs"
-WINDOW_NAME = "Smart Flame Detector"
+WINDOW_NAME = "Smart Fire Detector"
 DEFAULT_ALARM_SOUND = PROJECT_ROOT / "firealarm.mp3"
 
 
@@ -59,7 +59,7 @@ def discover_default_weights() -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the trained smart flame detector model on a webcam feed."
+        description="Run the trained smart fire detector model on a webcam feed."
     )
     parser.add_argument(
         "--weights",
