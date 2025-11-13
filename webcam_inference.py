@@ -85,8 +85,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mirror",
-        action="store_true",
-        help="Horizontally flip frames before inference (useful for front-facing webcams).",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Horizontally flip frames before inference (useful for front-facing webcams); "
+            "disable with --no-mirror."
+        ),
     )
     parser.add_argument(
         "--hide-labels",
@@ -229,14 +233,37 @@ def run_inference_loop(
             boxes = result.boxes
             if boxes is not None and boxes.cls is not None:
                 names = result.names or {}
-                classes = boxes.cls.detach().cpu().tolist()
-                confidences = (
-                    boxes.conf.detach().cpu().tolist()
-                    if boxes.conf is not None
-                    else [None] * len(classes)
+                raw_classes = boxes.cls
+                classes = (
+                    raw_classes.detach().cpu().tolist()
+                    if isinstance(raw_classes, torch.Tensor)
+                    else raw_classes.tolist()
                 )
-                for cls_id, score in zip(classes, confidences):
-                    label = names.get(int(cls_id), str(int(cls_id))).lower()
+                if boxes.conf is not None:
+                    raw_conf = boxes.conf
+                    confidences = (
+                        raw_conf.detach().cpu().tolist()
+                        if isinstance(raw_conf, torch.Tensor)
+                        else raw_conf.tolist()
+                    )
+                else:
+                    confidences = [None] * len(classes)
+
+                def resolve_label(cls_id: int) -> str:
+                    numeric_id = int(cls_id)
+                    if isinstance(names, dict):
+                        return str(names.get(numeric_id, numeric_id))
+                    if isinstance(names, (list, tuple)):
+                        if 0 <= numeric_id < len(names):
+                            return str(names[numeric_id])
+                    return str(numeric_id)
+
+                keep_indices: list[int] = []
+                for idx, (cls_id, score) in enumerate(zip(classes, confidences)):
+                    label = resolve_label(cls_id).lower()
+                    if label == "smoke":
+                        continue
+                    keep_indices.append(idx)
                     if label == "fire":
                         logger.info(
                             "Frame %d: Fire detected%s",
@@ -250,6 +277,10 @@ def run_inference_loop(
                                 score,
                             )
                             fire_alert = True
+
+                if len(keep_indices) != len(classes):
+                    filtered_boxes = boxes[keep_indices] if keep_indices else boxes[:0]
+                    result.boxes = filtered_boxes
             annotated = result.plot(labels=not hide_labels, conf=not hide_conf)
             blink_on = ((frame_index // 10) % 2) == 0
             if fire_alert:
