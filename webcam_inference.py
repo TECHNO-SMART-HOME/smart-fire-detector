@@ -42,7 +42,7 @@ def discover_default_weights() -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smart Fire Detector")
     parser.add_argument("--weights", type=Path, default=discover_default_weights())
-    parser.add_argument("--source", type=str, default="1")
+    parser.add_argument("--source", type=str, default="0")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--fire-alert-threshold", type=float, default=0.85)
     parser.add_argument("--alarm-sound", type=Path, default=DEFAULT_ALARM_SOUND)
